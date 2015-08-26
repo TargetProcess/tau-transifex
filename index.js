@@ -45,7 +45,7 @@ var transifex = function (config) {
     };
     var resourceFile = `${config.projectSlug}/resource/${config.resourceSlug}/`;
     var getTranslation = function (langCode) {
-        var url = `${resourceFile}translation/${langCode}/`;
+        var url = `${resourceFile}translation/${langCode}/?reviewed`;
         return getResponse(url).then(function (data) {
             langCode = langCode.replace('_', '-');
             return {lang: langCode, content: data.content};
