@@ -1,6 +1,6 @@
 var request = require('request');
 var _ = require('lodash');
-var apiUrl = '/api/2/project/';
+var apiUrl = '/api/2/';
 var host = 'https://transifex.com';
 /**
  *
@@ -38,14 +38,14 @@ var transifex = function (config) {
         return makeRequest(url);
     };
     var getLanguages = function () {
-        var url = `${config.projectSlug}/?details`;
+        var url = `project/${config.projectSlug}/?details`;
         return getResponse(url).then(function (data) {
             return data.teams;
         });
     };
     var resourceFile = `${config.projectSlug}/resource/${config.resourceSlug}/`;
     var getTranslation = function (langCode) {
-        var url = `${resourceFile}translation/${langCode}/?mode=reviewed`;
+        var url = `project/${resourceFile}translation/${langCode}/?mode=reviewed`;
         return getResponse(url).then(function (data) {
             langCode = langCode.replace('_', '-');
             return {lang: langCode, content: data.content};
@@ -59,7 +59,7 @@ var transifex = function (config) {
     };
 
     var updateResourceFile = function (content) {
-        var url = `${resourceFile}content/`;
+        var url = `project/${resourceFile}content/`;
         return getResponse(url).then(function (res) {
             var contentFromResource = JSON.parse(res.content);
             return _.merge(contentFromResource, content);
@@ -68,9 +68,20 @@ var transifex = function (config) {
         });
     };
 
+    var getLanguagesInfo = function (content) {
+        var url = `languages/`;
+        return getResponse(url).then(function (languages) {
+            return languages.map(function (lang) {
+                lang.code = lang.code.replace('_', '-');
+                return lang;
+            });
+        })
+    };
+
     return {
         getTranslatedResources: getTranslatedResources,
-        updateResourceFile: updateResourceFile
+        updateResourceFile: updateResourceFile,
+        getLanguagesInfo: getLanguagesInfo
     };
 };
 
