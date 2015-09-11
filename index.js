@@ -10,7 +10,7 @@ var host = 'https://transifex.com';
 var transifex = function (config) {
     var makeRequest = function (url, method, data) {
         method = method || 'GET';
-        console.log(method + ' ', apiUrl + url);
+        // console.log(method + ' ', apiUrl + url);
         var options = {
             url: `${host}${apiUrl}${url}`,
             method: method,
@@ -58,17 +58,59 @@ var transifex = function (config) {
         })
     };
 
-    var updateResourceFile = function (content) {
+    var generateHash = function (key) {
+        var crypto = require('crypto');
+        var shasum = crypto.createHash('md5');
+        var escaped = key.replace(/\\/g, '\\\\').replace(/\./g, '\\.');
+        shasum.update(escaped + ":");
+        return shasum.digest('hex');
+    };
+
+    var getResourceStrings = function (strings) {
+        return Promise.all(_.map(strings, function (value, token) {
+            var url = `project/${resourceFile}source/${generateHash(token)}`;
+            return getResponse(url).then(function (string) {
+                string.token = token;
+                return string;
+            })
+        }));
+    };
+
+    var putResourceStrings = function (strings) {
+        return Promise.all(_.map(strings, function (value) {
+            var url = `project/${resourceFile}source/${generateHash(value.token)}`;
+            return makeRequest(url, 'PUT', _.omit(value, 'token'))
+        }));
+    };
+
+    var updateResourceFile = function (dictionaries) {
         var url = `project/${resourceFile}content/`;
         return getResponse(url).then(function (res) {
             var contentFromResource = JSON.parse(res.content);
-            return _.merge(contentFromResource, content);
+            return _.merge(contentFromResource, _.extend.apply(_, _.values(dictionaries)));
         }).then(function (content) {
-            return makeRequest(url, 'PUT', {content: JSON.stringify(content)});
+            return Promise.all([makeRequest(url, 'PUT', {content: JSON.stringify(content)}), content]);
+        }).then(function (res) {
+            return getResourceStrings(res[1]);
+        }).then(function (strings) {
+            return _.map(strings, function (string) {
+                var token = string.token;
+                var tag = '';
+                _.each(dictionaries, function (dictionary, scope) {
+                    tag = '';
+                    if (scope !== 'default' && dictionary[token]) {
+                        tag = scope;
+                    }
+                });
+                string.tags = _.chain((string.tags || []).concat(tag)).compact().uniq().value();
+                return string;
+            })
+        }).then(function (strings) {
+            return putResourceStrings(strings);
         });
     };
 
-    var getLanguagesInfo = function (content) {
+    var getLanguagesInfo = function () {
         var url = `languages/`;
         return getResponse(url).then(function (languages) {
             return languages.map(function (lang) {
