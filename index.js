@@ -2,6 +2,7 @@ var request = require('request');
 var _ = require('lodash');
 var apiUrl = '/api/2/';
 var host = 'https://transifex.com';
+var Promise = require("bluebird");
 /**
  *
  * @param {{login:String, password:String, projectSlug: String, resourceSlug: String}} config
@@ -67,42 +68,43 @@ var transifex = function (config) {
     };
 
     var getResourceStrings = function (strings) {
-        return Promise.all(_.map(strings, function (value, token) {
+        return Promise.map(_.toArray(strings), function (token) {
             var url = `project/${resourceFile}source/${generateHash(token)}`;
             return getResponse(url).then(function (string) {
                 string.token = token;
                 return string;
+            }).catch(function () {
+                console.log(token, 'token not found by string hash');
+                return;
             })
-        }));
+        }, {concurrency: 10});
     };
 
     var putResourceStrings = function (strings) {
-        return Promise.all(_.map(strings, function (value) {
+        return Promise.map(strings, function (value) {
             var url = `project/${resourceFile}source/${generateHash(value.token)}`;
             return makeRequest(url, 'PUT', _.omit(value, 'token'))
-        }));
+        }, {concurrency: 10});
     };
 
     var updateResourceFile = function (dictionaries) {
         var url = `project/${resourceFile}content/`;
         return getResponse(url).then(function (res) {
             var contentFromResource = JSON.parse(res.content);
-            return _.merge(contentFromResource, _.extend.apply(_, _.values(dictionaries)));
+            return _.merge(contentFromResource, _.defaults.apply(_, [{}].concat(_.values(dictionaries))));
         }).then(function (content) {
             return Promise.all([makeRequest(url, 'PUT', {content: JSON.stringify(content)}), content]);
         }).then(function (res) {
             return getResourceStrings(res[1]);
         }).then(function (strings) {
-            return _.map(strings, function (string) {
+            return _.map(_.compact(strings), function (string) {
                 var token = string.token;
-                var tag = '';
                 _.each(dictionaries, function (dictionary, scope) {
-                    tag = '';
                     if (scope !== 'default' && dictionary[token]) {
-                        tag = scope;
+                        var tags = _.chain((string.tags || []).concat(scope)).compact().uniq().value();
+                        string.tags = tags;
                     }
                 });
-                string.tags = _.chain((string.tags || []).concat(tag)).compact().uniq().value();
                 return string;
             })
         }).then(function (strings) {
