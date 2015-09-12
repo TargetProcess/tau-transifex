@@ -1,6 +1,6 @@
 {
   "name": "tau-transifex",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Simple API for request to transifex REST API",
   "main": "index.js",
   "scripts": {
@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/TargetProcess/tau-transifex#readme",
   "dependencies": {
+    "bluebird": "^2.10.0",
     "lodash": "^3.10.1",
     "request": "^2.61.0"
   }
