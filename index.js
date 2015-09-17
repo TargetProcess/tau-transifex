@@ -100,9 +100,9 @@ var transifex = function (config) {
             return _.map(_.compact(strings), function (string) {
                 var token = string.token;
                 _.each(dictionaries, function (dictionary, scope) {
-                    if (!_.contains(config.skipTags || [], scope) && dictionary[token]) {
+                    if (dictionary[token]) {
                         var tags = _.chain((string.tags || []).concat(scope)).compact().uniq().value();
-                        string.tags = tags;
+                        string.tags = _.difference(tags, config.skipTags);
                     }
                 });
                 return string;
