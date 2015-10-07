@@ -5,10 +5,11 @@ var host = 'https://transifex.com';
 var Promise = require("bluebird");
 /**
  *
- * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String]}} config
+ * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], requestConcurrency: Number}} config
  * @return {{getTranslatedResources: Function, updateResourceFile: Function}}
  */
 var transifex = function (config) {
+    var concurrency = config.requestConcurrency || 5;
     var makeRequest = function (url, method, data) {
         method = method || 'GET';
         // console.log(method + ' ', apiUrl + url);
@@ -77,14 +78,14 @@ var transifex = function (config) {
                 console.log(token, 'token not found by string hash');
                 return;
             })
-        }, {concurrency: 10});
+        }, {concurrency: concurrency});
     };
 
     var putResourceStrings = function (strings) {
         return Promise.map(strings, function (value) {
             var url = `project/${resourceFile}source/${generateHash(value.token)}`;
             return makeRequest(url, 'PUT', _.omit(value, 'token'))
-        }, {concurrency: 10});
+        }, {concurrency: concurrency});
     };
 
     var updateResourceFile = function (dictionaries) {
