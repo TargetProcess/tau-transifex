@@ -5,7 +5,7 @@ var host = 'https://transifex.com';
 var Promise = require("bluebird");
 /**
  *
- * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], requestConcurrency: Number}} config
+ * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], requestConcurrency: Number, stringWillRemove:{tags:Array[String]}}} config
  * @return {{getTranslatedResources: Function, updateResourceFile: Function}}
  */
 var transifex = function (config) {
@@ -85,9 +85,21 @@ var transifex = function (config) {
         return Promise.map(strings, function (value) {
             var url = `project/${resourceFile}source/${generateHash(value.token)}`;
             return makeRequest(url, 'PUT', _.omit(value, 'token'))
-        }, {concurrency: concurrency});
+        }, {concurrency: concurrency}).then(function(){
+            return strings;
+        });
     };
-
+    var removeStringsWithCertainTags = function(strings, tags) {
+        var content = _.reduce(strings, function(content, item){
+            if(_.contains.apply(_,[item.tags || []].concat(tags))) {
+                return content;
+            }
+            content[item.token] = item.token;
+            return content;
+        },{});
+        var url = `project/${resourceFile}content/`;
+        return makeRequest(url, 'PUT', {content: JSON.stringify(content)})
+    };
     var updateResourceFile = function (dictionaries) {
         var url = `project/${resourceFile}content/`;
         return getResponse(url).then(function (res) {
@@ -110,6 +122,8 @@ var transifex = function (config) {
             })
         }).then(function (strings) {
             return putResourceStrings(strings);
+        }).then(function (strings) {
+            return removeStringsWithCertainTags(strings, config.stringWillRemove.tags)
         });
     };
 
