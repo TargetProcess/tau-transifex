@@ -64,7 +64,7 @@ var transifex = function (config) {
         var crypto = require('crypto');
         var shasum = crypto.createHash('md5');
         var escaped = key.replace(/\\/g, '\\\\').replace(/\./g, '\\.');
-        shasum.update(escaped + ":");
+        shasum.update(escaped + ":", 'utf8');
         return shasum.digest('hex');
     };
 
@@ -85,18 +85,18 @@ var transifex = function (config) {
         return Promise.map(strings, function (value) {
             var url = `project/${resourceFile}source/${generateHash(value.token)}`;
             return makeRequest(url, 'PUT', _.omit(value, 'token'))
-        }, {concurrency: concurrency}).then(function(){
+        }, {concurrency: concurrency}).then(function () {
             return strings;
         });
     };
-    var removeStringsWithCertainTags = function(strings, tags) {
-        var content = _.reduce(strings, function(content, item){
-            if(_.contains.apply(_,[item.tags || []].concat(tags))) {
+    var removeStringsWithCertainTags = function (strings, tags) {
+        var content = _.reduce(strings, function (content, item) {
+            if (_.contains.apply(_, [item.tags || []].concat(tags))) {
                 return content;
             }
             content[item.token] = item.token;
             return content;
-        },{});
+        }, {});
         var url = `project/${resourceFile}content/`;
         return makeRequest(url, 'PUT', {content: JSON.stringify(content)})
     };
