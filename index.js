@@ -74,10 +74,7 @@ var transifex = function (config) {
             return getResponse(url).then(function (string) {
                 string.token = token;
                 return string;
-            }).catch(function () {
-                console.log(token, 'token not found by string hash');
-                return;
-            })
+            });
         }, {concurrency: concurrency});
     };
 
