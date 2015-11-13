@@ -4,7 +4,7 @@
   "description": "Simple API for request to transifex REST API",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test/test.js"
   },
   "repository": {
     "type": "git",
@@ -23,5 +23,8 @@
     "bluebird": "^2.10.0",
     "lodash": "^3.10.1",
     "request": "^2.61.0"
+  },
+  "devDependencies": {
+    "tape": "^4.2.2"
   }
 }

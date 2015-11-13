@@ -2,14 +2,21 @@ var request = require('request');
 var _ = require('lodash');
 var apiUrl = '/api/2/';
 var host = 'https://transifex.com';
-var Promise = require("bluebird");
+var Promise = require('bluebird');
+var utils = require('./lib/utils');
+var generateHash = utils.generateHash;
+var mergeStrings = utils.mergeStrings;
 /**
  *
- * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], requestConcurrency: Number, stringWillRemove:{tags:Array[String]}}} config
+ * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], obsoleteTag:String, requestConcurrency: Number, stringWillRemove:{tags:Array[String]}}} config
  * @return {{getTranslatedResources: Function, updateResourceFile: Function}}
  */
 var transifex = function (config) {
     var concurrency = config.requestConcurrency || 5;
+    config.stringWillRemove = config.stringWillRemove || {tags: []};
+    config.obsoleteTag = config.obsoleteTag || 'obsolete';
+    var resourceFile = `${config.projectSlug}/resource/${config.resourceSlug}/`;
+
     var makeRequest = function (url, method, data) {
         method = method || 'GET';
         // console.log(method + ' ', apiUrl + url);
@@ -45,7 +52,6 @@ var transifex = function (config) {
             return data.teams;
         });
     };
-    var resourceFile = `${config.projectSlug}/resource/${config.resourceSlug}/`;
     var getTranslation = function (langCode) {
         var url = `project/${resourceFile}translation/${langCode}/?mode=reviewed`;
         return getResponse(url).then(function (data) {
@@ -59,15 +65,6 @@ var transifex = function (config) {
             return Promise.all(resources)
         })
     };
-
-    var generateHash = function (key) {
-        var crypto = require('crypto');
-        var shasum = crypto.createHash('md5');
-        var escaped = key.replace(/\\/g, '\\\\').replace(/\./g, '\\.');
-        shasum.update(escaped + ":", 'utf8');
-        return shasum.digest('hex');
-    };
-
     var getResourceStrings = function (strings) {
         return Promise.map(_.toArray(strings), function (token) {
             var url = `project/${resourceFile}source/${generateHash(token)}`;
@@ -77,7 +74,6 @@ var transifex = function (config) {
             });
         }, {concurrency: concurrency});
     };
-
     var putResourceStrings = function (strings) {
         return Promise.map(strings, function (value) {
             var url = `project/${resourceFile}source/${generateHash(value.token)}`;
@@ -86,6 +82,16 @@ var transifex = function (config) {
             return strings;
         });
     };
+    var getLanguagesInfo = function () {
+        var url = `languages/`;
+        return getResponse(url).then(function (languages) {
+            return languages.map(function (lang) {
+                lang.code = lang.code.replace('_', '-');
+                return lang;
+            });
+        })
+    };
+
     var removeStringsWithCertainTags = function (strings, tags) {
         var content = _.reduce(strings, function (content, item) {
             if (_.contains.apply(_, [item.tags || []].concat(tags))) {
@@ -97,17 +103,19 @@ var transifex = function (config) {
         var url = `project/${resourceFile}content/`;
         return makeRequest(url, 'PUT', {content: JSON.stringify(content)})
     };
+
+
     var updateResourceFile = function (dictionaries) {
         var url = `project/${resourceFile}content/`;
         return getResponse(url).then(function (res) {
             var contentFromResource = JSON.parse(res.content);
-            return _.merge(contentFromResource, _.defaults.apply(_, [{}].concat(_.values(dictionaries))));
-        }).then(function (content) {
-            return Promise.all([makeRequest(url, 'PUT', {content: JSON.stringify(content)}), content]);
-        }).then(function (res) {
-            return getResourceStrings(res[1]);
+            return mergeStrings(dictionaries, contentFromResource);
         }).then(function (strings) {
-            return _.map(_.compact(strings), function (string) {
+            return Promise.all([makeRequest(url, 'PUT', {content: JSON.stringify(strings.updateStrings)}), strings]);
+        }).then(function (res) {
+            return Promise.all([getResourceStrings(res[1].updateStrings), res[1].obsoleteStrings]);
+        }).then(function (res) {
+            return _.map(_.compact(res[0]), function (string) {
                 var token = string.token;
                 _.each(dictionaries, function (dictionary, scope) {
                     if (dictionary[token]) {
@@ -122,16 +130,6 @@ var transifex = function (config) {
         }).then(function (strings) {
             return removeStringsWithCertainTags(strings, config.stringWillRemove.tags)
         });
-    };
-
-    var getLanguagesInfo = function () {
-        var url = `languages/`;
-        return getResponse(url).then(function (languages) {
-            return languages.map(function (lang) {
-                lang.code = lang.code.replace('_', '-');
-                return lang;
-            });
-        })
     };
 
     return {
