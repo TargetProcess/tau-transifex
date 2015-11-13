@@ -1,7 +1,7 @@
 var utils = require('../lib/utils');
 var test = require('tape');
-var newStings = require('./fextures/newStrings');
-var transifexStrings = require('./fextures/transifexStrings');
+var newStings = require('./fixtures/newStrings');
+var transifexStrings = require('./fixtures/transifexStrings');
 var stringsWithTags =
     [
         {
@@ -25,6 +25,12 @@ var stringsWithTags =
             "character_limit": null,
             "tags": null,
             "token": "test"
+        },
+        {
+            "comment": "",
+            "character_limit": null,
+            "tags": ['test'],
+            "token": "test2"
         },
         {
             "comment": "",
@@ -75,21 +81,20 @@ test('merge strings', function (assert) {
 });
 
 test('apply tags', function (assert) {
-    assert.deepEqual(
-        utils.applyTagsToStrings(newStings, stringsWithTags, ['test'], {
+    assert.deepEquals(
+        utils.applyTagsToStrings(newStings, stringsWithTags, ['test', 'test2'], {
             obsoleteTag: 'obsolete',
             skipTags: ['remove']
         }),
-        {
-            obsoleteStrings: ['test'],
-            updateStrings: {
-                'custom js scope': 'custom js scope',
-                'deep nested message': 'deep nested message',
-                remove: 'remove',
-                test: 'test',
-                test1: 'test1'
-            }
-        }
+        require('./fixtures/expectedTags')
+    );
+    assert.end();
+});
+
+test('remove strings with tags', function (assert) {
+    assert.deepEquals(
+        utils.removeStringsWithCertainTags(stringsWithTags, ['none']),
+        {'custom js scope': 'custom js scope', remove: 'remove', test: 'test', test2: 'test2'}
     );
     assert.end();
 });

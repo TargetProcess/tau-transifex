@@ -6,6 +6,7 @@ var Promise = require('bluebird');
 var utils = require('./lib/utils');
 var generateHash = utils.generateHash;
 var mergeStrings = utils.mergeStrings;
+var applyTagsToStrings = utils.applyTagsToStrings;
 /**
  *
  * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], obsoleteTag:String, requestConcurrency: Number, stringWillRemove:{tags:Array[String]}}} config
@@ -93,13 +94,7 @@ var transifex = function (config) {
     };
 
     var removeStringsWithCertainTags = function (strings, tags) {
-        var content = _.reduce(strings, function (content, item) {
-            if (_.contains.apply(_, [item.tags || []].concat(tags))) {
-                return content;
-            }
-            content[item.token] = item.token;
-            return content;
-        }, {});
+        var content = utils.removeStringsWithCertainTags(strings, tags);
         var url = `project/${resourceFile}content/`;
         return makeRequest(url, 'PUT', {content: JSON.stringify(content)})
     };
@@ -115,16 +110,7 @@ var transifex = function (config) {
         }).then(function (res) {
             return Promise.all([getResourceStrings(res[1].updateStrings), res[1].obsoleteStrings]);
         }).then(function (res) {
-            return _.map(_.compact(res[0]), function (string) {
-                var token = string.token;
-                _.each(dictionaries, function (dictionary, scope) {
-                    if (dictionary[token]) {
-                        var tags = _.chain((string.tags || []).concat(scope)).compact().uniq().value();
-                        string.tags = _.difference(tags, config.skipTags);
-                    }
-                });
-                return string;
-            })
+            return applyTagsToStrings(dictionaries,res[0], res[1], config)
         }).then(function (strings) {
             return putResourceStrings(strings);
         }).then(function (strings) {
