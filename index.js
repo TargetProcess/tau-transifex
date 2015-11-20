@@ -7,10 +7,16 @@ var generateHash = utils.generateHash;
 var mergeStrings = utils.mergeStrings;
 var applyTagsToStrings = utils.applyTagsToStrings;
 
+var transifexLanguageCodeToIso = function(languageCode) {
+    return languageCode.replace('_', '-');
+};
+var isoLanguageCodeToTransifex = function(languageCode) {
+    return languageCode.replace('-', '_');
+};
+
 /**
- *
  * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], obsoleteTag:String, requestConcurrency: Number, stringWillRemove:{tags:Array[String]}}} config
- * @return {{getTranslatedResources: Function, updateResourceFile: Function}}
+ * @return {{getProjectLanguages,getTranslatedResource,getTranslationStats,getTranslatedResources,getLanguagesInfo}}
  */
 var transifex = function (config) {
     var concurrency = config.requestConcurrency || 5;
@@ -47,50 +53,47 @@ var transifex = function (config) {
         return makeRequest(url);
     };
 
-    var getProjectLanguageCodes = function (projectSlug) {
-        var url = `project/${projectSlug}/languages`;
+    var getProjectLanguages = function () {
+        var url = `project/${config.projectSlug}/languages`;
         return getResponse(url).then(function (data) {
-            return _.pluck(data, 'language_code');
+            return data.map(function(item) {
+                return {code: transifexLanguageCodeToIso(item['language_code'])};
+            });
         });
     };
 
-    var getProjectLanguageDetails = function (projectSlug, languageCode) {
-        return getResponse(`project/${projectSlug}/language/${languageCode}?details`);
-    };
-
-    var getTranslation = function (langCode) {
-        var url = `project/${resourceFile}translation/${langCode}/?mode=reviewed`;
+    var getTranslatedResource = function (isoLanguageCode) {
+        var url = `project/${resourceFile}translation/${isoLanguageCodeToTransifex(isoLanguageCode)}/?mode=reviewed`;
         return getResponse(url).then(function (data) {
             return data.content;
         });
     };
 
     var getTranslatedResources = function () {
-        var projectSlug = config.projectSlug;
-        return getProjectLanguageCodes(projectSlug)
-            .then(function (languageCodes) {
-                return Promise.all(languageCodes.map(function (languageCode) {
-                    return Promise
-                        .all([
-                            getProjectLanguageDetails(projectSlug, languageCode),
-                            getTranslation(languageCode)
-                        ])
-                        .then(function (results) {
-                            var projectLanguageDetails = results[0];
-                            var translation = results[1];
+        return getProjectLanguages()
+            .then(function (languages) {
+                return Promise.all(languages.map(function (language) {
+                    return getTranslatedResource(language.code)
+                        .then(function (content) {
                             return {
-                                lang: languageCode.replace('_', '-'),
-                                content: translation,
-                                stats: {
-                                    totalTokensCount: projectLanguageDetails['total_segments'],
-                                    translatedTokensCount: projectLanguageDetails['translated_segments'],
-                                    reviewedTokensCount: projectLanguageDetails['reviewed_segments'],
-                                    translatedWordsCount: projectLanguageDetails['translated_words']
-                                }
+                                lang: language.code,
+                                content: content
                             };
                         })
                 }));
             })
+    };
+
+    var getTranslationStats = function (isoLanguageCode) {
+        return getResponse(`project/${config.projectSlug}/language/${isoLanguageCodeToTransifex(isoLanguageCode)}?details`)
+            .then(function (details) {
+                return {
+                    totalTokensCount: details['total_segments'],
+                    translatedTokensCount: details['translated_segments'],
+                    reviewedTokensCount: details['reviewed_segments'],
+                    translatedWordsCount: details['translated_words']
+                };
+            });
     };
 
     var getResourceStrings = function (strings) {
@@ -117,7 +120,7 @@ var transifex = function (config) {
         return getResponse(url).then(function (languages) {
             return languages.map(function (lang) {
                 return {
-                    code: lang.code.replace('_', '-'),
+                    code: transifexLanguageCodeToIso(lang.code),
                     name: lang.name
                 };
             });
@@ -149,6 +152,9 @@ var transifex = function (config) {
     };
 
     return {
+        getProjectLanguages: getProjectLanguages,
+        getTranslationStats: getTranslationStats,
+        getTranslatedResource: getTranslatedResource,
         getTranslatedResources: getTranslatedResources,
         updateResourceFile: updateResourceFile,
         getLanguagesInfo: getLanguagesInfo
