@@ -1,16 +1,22 @@
 var request = require('request');
 var _ = require('lodash');
-var apiUrl = '/api/2/';
-var host = 'https://transifex.com';
+var apiUrl = 'https://transifex.com/api/2/';
 var Promise = require('bluebird');
 var utils = require('./lib/utils');
 var generateHash = utils.generateHash;
 var mergeStrings = utils.mergeStrings;
 var applyTagsToStrings = utils.applyTagsToStrings;
+
+var transifexLanguageCodeToIso = function(languageCode) {
+    return languageCode.replace('_', '-');
+};
+var isoLanguageCodeToTransifex = function(languageCode) {
+    return languageCode.replace('-', '_');
+};
+
 /**
- *
  * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], obsoleteTag:String, requestConcurrency: Number, stringWillRemove:{tags:Array[String]}}} config
- * @return {{getTranslatedResources: Function, updateResourceFile: Function}}
+ * @return {{getProjectLanguages,getTranslatedResource,getTranslationStats,getTranslatedResources,getLanguagesInfo}}
  */
 var transifex = function (config) {
     var concurrency = config.requestConcurrency || 5;
@@ -20,9 +26,8 @@ var transifex = function (config) {
 
     var makeRequest = function (url, method, data) {
         method = method || 'GET';
-        // console.log(method + ' ', apiUrl + url);
         var options = {
-            url: `${host}${apiUrl}${url}`,
+            url: `${apiUrl}${url}`,
             method: method,
             auth: {
                 'user': config.login,
@@ -47,25 +52,50 @@ var transifex = function (config) {
     var getResponse = function (url) {
         return makeRequest(url);
     };
-    var getLanguages = function () {
-        var url = `project/${config.projectSlug}/?details`;
+
+    var getProjectLanguages = function () {
+        var url = `project/${config.projectSlug}/languages`;
         return getResponse(url).then(function (data) {
-            return data.teams;
+            return data.map(function(item) {
+                return {code: transifexLanguageCodeToIso(item['language_code'])};
+            });
         });
     };
-    var getTranslation = function (langCode) {
-        var url = `project/${resourceFile}translation/${langCode}/?mode=reviewed`;
+
+    var getTranslatedResource = function (isoLanguageCode) {
+        var url = `project/${resourceFile}translation/${isoLanguageCodeToTransifex(isoLanguageCode)}/?mode=reviewed`;
         return getResponse(url).then(function (data) {
-            langCode = langCode.replace('_', '-');
-            return {lang: langCode, content: data.content};
+            return data.content;
         });
     };
+
     var getTranslatedResources = function () {
-        return getLanguages().then(function (languages) {
-            var resources = languages.map(getTranslation);
-            return Promise.all(resources)
-        })
+        return getProjectLanguages()
+            .then(function (languages) {
+                return Promise.all(languages.map(function (language) {
+                    return getTranslatedResource(language.code)
+                        .then(function (content) {
+                            return {
+                                lang: language.code,
+                                content: content
+                            };
+                        })
+                }));
+            })
     };
+
+    var getTranslationStats = function (isoLanguageCode) {
+        return getResponse(`project/${config.projectSlug}/language/${isoLanguageCodeToTransifex(isoLanguageCode)}?details`)
+            .then(function (details) {
+                return {
+                    totalTokensCount: details['total_segments'],
+                    translatedTokensCount: details['translated_segments'],
+                    reviewedTokensCount: details['reviewed_segments'],
+                    translatedWordsCount: details['translated_words']
+                };
+            });
+    };
+
     var getResourceStrings = function (strings) {
         return Promise.map(_.toArray(strings), function (token) {
             var url = `project/${resourceFile}source/${generateHash(token)}`;
@@ -75,6 +105,7 @@ var transifex = function (config) {
             });
         }, {concurrency: concurrency});
     };
+
     var putResourceStrings = function (strings) {
         return Promise.map(strings, function (value) {
             var url = `project/${resourceFile}source/${generateHash(value.token)}`;
@@ -83,12 +114,15 @@ var transifex = function (config) {
             return strings;
         });
     };
+
     var getLanguagesInfo = function () {
         var url = `languages/`;
         return getResponse(url).then(function (languages) {
             return languages.map(function (lang) {
-                lang.code = lang.code.replace('_', '-');
-                return lang;
+                return {
+                    code: transifexLanguageCodeToIso(lang.code),
+                    name: lang.name
+                };
             });
         })
     };
@@ -98,7 +132,6 @@ var transifex = function (config) {
         var url = `project/${resourceFile}content/`;
         return makeRequest(url, 'PUT', {content: JSON.stringify(content)})
     };
-
 
     var updateResourceFile = function (dictionaries) {
         var url = `project/${resourceFile}content/`;
@@ -110,7 +143,7 @@ var transifex = function (config) {
         }).then(function (res) {
             return Promise.all([getResourceStrings(res[1].updateStrings), res[1].obsoleteStrings]);
         }).then(function (res) {
-            return applyTagsToStrings(dictionaries,res[0], res[1], config)
+            return applyTagsToStrings(dictionaries, res[0], res[1], config)
         }).then(function (strings) {
             return putResourceStrings(strings);
         }).then(function (strings) {
@@ -119,6 +152,9 @@ var transifex = function (config) {
     };
 
     return {
+        getProjectLanguages: getProjectLanguages,
+        getTranslationStats: getTranslationStats,
+        getTranslatedResource: getTranslatedResource,
         getTranslatedResources: getTranslatedResources,
         updateResourceFile: updateResourceFile,
         getLanguagesInfo: getLanguagesInfo
