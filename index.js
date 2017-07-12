@@ -1,6 +1,4 @@
-process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
-
-var request = require('request').defaults({proxy: "http://127.0.0.1:8888"});
+var request = require('request');
 var _ = require('lodash');
 var apiUrl = 'https://www.transifex.com/api/2/';
 var Promise = require('bluebird');
