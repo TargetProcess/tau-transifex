@@ -1,6 +1,6 @@
 {
   "name": "tau-transifex",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Simple API for request to transifex REST API",
   "main": "index.js",
   "scripts": {
