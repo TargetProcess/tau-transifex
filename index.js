@@ -22,8 +22,13 @@ var transifex = function (config) {
     var concurrency = config.requestConcurrency || 5;
     config.stringWillRemove = config.stringWillRemove || {tags: []};
     config.obsoleteTag = config.obsoleteTag || 'obsolete';
-    config.logLevel = config.logLevel || 'debug';
+    config.logLevel = config.logLevel || 'error';
     var resourceFile = `${config.projectSlug}/resource/${config.resourceSlug}/`;
+
+    if (config.logLevel === 'trace') {
+        // Generates a lot of messages.
+        request.debug = true;
+    }
 
     var log = function (level, message) {
         console.log("%s %s: %s", level, new Date(), message);
