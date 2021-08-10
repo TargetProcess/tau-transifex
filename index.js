@@ -43,7 +43,7 @@ var transifex = function (config) {
                 if (!err && response.statusCode == 200) {
                     resolve(body);
                 } else {
-                    reject(err || body);
+                    reject(err || body || response);
                 }
             });
         });
