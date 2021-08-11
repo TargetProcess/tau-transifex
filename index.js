@@ -1,54 +1,52 @@
-var request = require('request');
-var _ = require('lodash');
-var apiUrl = 'https://www.transifex.com/api/2/';
-var Promise = require('bluebird');
-var utils = require('./lib/utils');
-var generateHash = utils.generateHash;
-var mergeStrings = utils.mergeStrings;
-var applyTagsToStrings = utils.applyTagsToStrings;
+const request = require('request');
+const _ = require('lodash');
+const Promise = require('bluebird');
+const utils = require('./lib/utils');
 
-var transifexLanguageCodeToIso = function(languageCode) {
-    return languageCode.replace('_', '-');
-};
-var isoLanguageCodeToTransifex = function(languageCode) {
-    return languageCode.replace('-', '_');
-};
+const generateHash = utils.generateHash;
+const mergeStrings = utils.mergeStrings;
+const applyTagsToStrings = utils.applyTagsToStrings;
+const apiUrl = 'https://www.transifex.com/api/2/';
+
+const transifexLanguageCodeToIso = (languageCode) => languageCode.replace('_', '-');
+const isoLanguageCodeToTransifex = (languageCode) => languageCode.replace('-', '_');
+
+const logW = (level, message) => console.log("%s %s: %s", level, new Date(), message);
 
 /**
  * @param {{login:String, password:String, projectSlug: String, resourceSlug: String, skipTags: Array[String], obsoleteTag:String, requestConcurrency: Number, stringWillRemove:{tags:Array[String]}}} config
  * @return {{getProjectLanguages,getTranslatedResource,getTranslationStats,getTranslatedResources,getLanguagesInfo}}
  */
-var transifex = function (config) {
-    var concurrency = config.requestConcurrency || 5;
+const transifex = function (config) {
+    const concurrency = config.requestConcurrency || 5;
     config.stringWillRemove = config.stringWillRemove || {tags: []};
     config.obsoleteTag = config.obsoleteTag || 'obsolete';
     config.logLevel = config.logLevel || 'error';
-    var resourceFile = `${config.projectSlug}/resource/${config.resourceSlug}/`;
+    const resourceFile = `${config.projectSlug}/resource/${config.resourceSlug}/`;
 
     if (config.logLevel === 'trace') {
         // Generates a lot of messages.
         request.debug = true;
     }
 
-    var log = function (level, message) {
-        console.log("%s %s: %s", level, new Date(), message);
-    };
-
-    var logDebug = function (message) {
-        if (config.logLevel === 'debug') {
-            log(config.logLevel, message);
+    const log = {
+        debug: (message) => {
+            if (config.logLevel === 'trace' || config.logLevel === 'debug') {
+                logW(config.logLevel, message);
+            }
+            return message;
+        },
+        error: (message) => {
+            if (config.logLevel === 'trace' || config.logLevel === 'debug' || config.logLevel === 'error') {
+                logW(config.logLevel, message);
+            }
+            return message;
         }
     };
 
-    var logError = function (message) {
-        if (config.logLevel === 'debug' || config.logLevel === 'error') {
-            log(config.logLevel, message);
-        }
-    };
-
-    var makeRequest = function (url, method, data) {
+    const getRequestOptions = (url, method, data) => {
         method = method || 'GET';
-        var options = {
+        const options = {
             url: `${apiUrl}${url}`,
             method: method,
             auth: {
@@ -60,47 +58,59 @@ var transifex = function (config) {
         if (method === 'PUT') {
             options.json = data;
         }
-        return new Promise(function (resolve, reject) {
-            request(options, function (err, response, body) {
-                if (!err && response.statusCode == 200) {
-                    resolve(body);
+        return options;
+    };
+
+    const makeRequestCall = (options, resolve, reject) => {
+        return request(options, (err, response, body) => {
+            if (!err && response.statusCode === 200) {
+                resolve(body);
+            } else {
+                const reason = err || body || response;
+
+                // Api rate limits reached.  See https://docs.transifex.com/api/introduction#api-rate-limits
+                if (response.statusCode === 429) {
+                    const secondsToWaitBeforeRetry = (response.headers['retry-after'] || 5 * 60) + 5;
+
+                    log.error(`${options.url} - API rate limits reached: '${reason}' (429).  Waiting ${secondsToWaitBeforeRetry}s to retry.`);
+
+                    Promise
+                        .delay(secondsToWaitBeforeRetry * 1000)
+                        .then(() => makeRequestCall(options, resolve, reject));
                 } else {
-                    var reason = err || body || response;
-
-                    logError(reason);
-
-                    reject(reason);
+                    reject(log.error(reason));
                 }
-            });
+            }
         });
     };
 
-    var getResponse = function (url) {
-        return makeRequest(url);
+    const makeRequest = (url, method, data) => {
+        const options = getRequestOptions(url, method, data);
+        return new Promise((resolve, reject) => makeRequestCall(options, resolve, reject));
     };
 
-    var getProjectLanguages = function () {
-        var url = `project/${config.projectSlug}/languages`;
-        return getResponse(url).then(function (data) {
-            return data.map(function(item) {
+    const getResponse = (url) => makeRequest(url);
+
+    const getProjectLanguages = () => {
+        const url = `project/${config.projectSlug}/languages`;
+        return getResponse(url).then((data) => {
+            return data.map((item) => {
                 return {code: transifexLanguageCodeToIso(item['language_code'])};
             });
         });
     };
 
-    var getTranslatedResource = function (isoLanguageCode) {
-        var url = `project/${resourceFile}translation/${isoLanguageCodeToTransifex(isoLanguageCode)}/?mode=reviewed`;
-        return getResponse(url).then(function (data) {
-            return data.content;
-        });
+    const getTranslatedResource = (isoLanguageCode) => {
+        const url = `project/${resourceFile}translation/${isoLanguageCodeToTransifex(isoLanguageCode)}/?mode=reviewed`;
+        return getResponse(url).then((data) => data.content);
     };
 
-    var getTranslatedResources = function () {
+    const getTranslatedResources = () => {
         return getProjectLanguages()
-            .then(function (languages) {
-                return Promise.all(languages.map(function (language) {
+            .then((languages) => {
+                return Promise.all(languages.map((language) => {
                     return getTranslatedResource(language.code)
-                        .then(function (content) {
+                        .then((content) => {
                             return {
                                 lang: language.code,
                                 content: content
@@ -110,9 +120,9 @@ var transifex = function (config) {
             })
     };
 
-    var getTranslationStats = function (isoLanguageCode) {
+    const getTranslationStats = (isoLanguageCode) => {
         return getResponse(`project/${config.projectSlug}/language/${isoLanguageCodeToTransifex(isoLanguageCode)}?details`)
-            .then(function (details) {
+            .then((details) => {
                 return {
                     totalTokensCount: details['total_segments'],
                     translatedTokensCount: details['translated_segments'],
@@ -122,29 +132,30 @@ var transifex = function (config) {
             });
     };
 
-    var getResourceStrings = function (strings) {
-        return Promise.map(_.toArray(strings), function (token) {
-            var url = `project/${resourceFile}source/${generateHash(token)}`;
-            return getResponse(url).then(function (string) {
-                string.token = token;
-                return string;
-            });
-        }, {concurrency: concurrency});
+    const getResourceStrings = (strings) => {
+        return Promise
+            .map(_.toArray(strings), (token) => {
+                const url = `project/${resourceFile}source/${generateHash(token)}`;
+                return getResponse(url).then((string) => {
+                    string.token = token;
+                    return string;
+                });
+            }, {concurrency: concurrency});
     };
 
-    var putResourceStrings = function (strings) {
-        return Promise.map(strings, function (value) {
-            var url = `project/${resourceFile}source/${generateHash(value.token)}`;
-            return makeRequest(url, 'PUT', _.omit(value, 'token'))
-        }, {concurrency: concurrency}).then(function () {
-            return strings;
-        });
+    const putResourceStrings = (strings) => {
+        return Promise
+            .map(strings, (value) => {
+                const url = `project/${resourceFile}source/${generateHash(value.token)}`;
+                return makeRequest(url, 'PUT', _.omit(value, 'token'))
+            }, {concurrency: concurrency})
+            .then(() => strings);
     };
 
-    var getLanguagesInfo = function () {
-        var url = `languages/`;
-        return getResponse(url).then(function (languages) {
-            return languages.map(function (lang) {
+    const getLanguagesInfo = () => {
+        const url = `languages/`;
+        return getResponse(url).then((languages) => {
+            return languages.map((lang) => {
                 return {
                     code: transifexLanguageCodeToIso(lang.code),
                     name: lang.name
@@ -153,33 +164,33 @@ var transifex = function (config) {
         })
     };
 
-    var removeStringsWithCertainTags = function (strings, tags) {
-        var content = utils.removeStringsWithCertainTags(strings, tags);
-        var url = `project/${resourceFile}content/`;
+    const removeStringsWithCertainTags = (strings, tags) => {
+        const content = utils.removeStringsWithCertainTags(strings, tags);
+        const url = `project/${resourceFile}content/`;
         return makeRequest(url, 'PUT', {content: JSON.stringify(content)})
     };
 
-    var updateResourceFile = function (dictionaries) {
-        var url = `project/${resourceFile}content/`;
-        logDebug('Get Transifex dictionaries content');
-        return getResponse(url).then(function (res) {
-            logDebug('Merge Transifex and our dictionaries content');
-            var contentFromResource = JSON.parse(res.content);
+    const updateResourceFile = (dictionaries) => {
+        const url = `project/${resourceFile}content/`;
+        log.debug('Get Transifex dictionaries content');
+        return getResponse(url).then((res) => {
+            log.debug('Merge Transifex and our dictionaries content');
+            const contentFromResource = JSON.parse(res.content);
             return mergeStrings(dictionaries, contentFromResource);
-        }).then(function (strings) {
-            logDebug('Put merged dictionaries to Transifex');
+        }).then((strings) => {
+            log.debug('Put merged dictionaries to Transifex');
             return Promise.all([makeRequest(url, 'PUT', {content: JSON.stringify(strings.updateStrings)}), strings]);
-        }).then(function (res) {
-            logDebug('Get dictionaries including obsolete ones from Transifex');
+        }).then((res) => {
+            log.debug('Get dictionaries including obsolete ones from Transifex');
             return Promise.all([getResourceStrings(res[1].updateStrings), res[1].obsoleteStrings]);
-        }).then(function (res) {
-            logDebug('Apply tags to result dictionaries');
+        }).then((res) => {
+            log.debug('Apply tags to result dictionaries');
             return applyTagsToStrings(dictionaries, res[0], res[1], config)
-        }).then(function (strings) {
-            logDebug('Put result dictionaries to Transifex');
+        }).then((strings) => {
+            log.debug('Put result dictionaries to Transifex');
             return putResourceStrings(strings);
-        }).then(function (strings) {
-            logDebug('Remove dictionaries with certain tags');
+        }).then((strings) => {
+            log.debug('Remove dictionaries with certain tags');
             return removeStringsWithCertainTags(strings, config.stringWillRemove.tags)
         });
     };
